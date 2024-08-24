@@ -12,6 +12,7 @@ import (
 // - 5:hello -> hello
 // - 10:hello12345 -> hello12345
 func decode(b string, st int) (x interface{}, i int, err error) {
+	// fmt.Println(st)
 	if st == len(b) {
 		return nil, st, io.ErrUnexpectedEOF
 	}
@@ -23,6 +24,8 @@ func decode(b string, st int) (x interface{}, i int, err error) {
 		return decodeInt(b, i)
 	case b[i] >= '0' && b[i] <= '9':
 		return decodeString(b, i)
+	case b[i] == 'd':
+		return decodeDict(b, i)
 	default:
 		return nil, st, fmt.Errorf("unexpected value: %q", b[i])
 	}
@@ -91,6 +94,32 @@ func decodeList(b string, st int) (l []interface{}, i int, err error) {
 	}
 	i++
 	return l, i, nil
+}
+
+func decodeDict(b string, st int) (m map[string]interface{}, i int, err error) {
+	i = st
+	i++ // 'l'
+	m = make(map[string]interface{})
+	for {
+		if i >= len(b) {
+			return nil, st, fmt.Errorf("bad dictionary")
+		}
+		if b[i] == 'e' {
+			break
+		}
+		var key string
+		key, i, err = decodeString(b, i)
+		if err != nil {
+			return nil, i, err
+		}
+		var value interface{}
+		value, i, err = decode(b, i)
+		if err != nil {
+			return nil, i, err
+		}
+		m[key] = value
+	}
+	return m, i, nil
 }
 
 func main() {
