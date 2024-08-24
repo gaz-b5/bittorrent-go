@@ -89,6 +89,7 @@ func decodeList(b string, st int) (l []interface{}, i int, err error) {
 		}
 		l = append(l, x)
 	}
+	i++
 	return l, i, nil
 }
 
