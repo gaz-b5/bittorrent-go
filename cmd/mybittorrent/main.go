@@ -182,6 +182,10 @@ func main() {
 
 		fmt.Printf("Info Hash: %x\n", sha1Hash)
 
+		fmt.Println("Piece Length:", info["piece length"])
+
+		fmt.Printf("Piece Hashes: %x\n", info["pieces"])
+
 	} else {
 		fmt.Println("Unknown command: " + command)
 		os.Exit(1)
