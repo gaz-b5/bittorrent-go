@@ -98,7 +98,7 @@ func decodeList(b string, st int) (l []interface{}, i int, err error) {
 
 func decodeDict(b string, st int) (m map[string]interface{}, i int, err error) {
 	i = st
-	i++ // 'l'
+	i++
 	m = make(map[string]interface{})
 	for {
 		if i >= len(b) {
@@ -138,6 +138,32 @@ func main() {
 
 		jsonOutput, _ := json.Marshal(decoded)
 		fmt.Println(string(jsonOutput))
+
+	} else if command == "info" {
+		data, err := os.ReadFile(os.Args[2])
+
+		if err != nil {
+			fmt.Printf("error: read file: %v\n", err)
+			return
+		}
+
+		decoded, _, err := decodeDict(string(data), 0)
+
+		if err != nil {
+			fmt.Println(err)
+			return
+		}
+
+		fmt.Println("Tracker URL:", decoded["announce"])
+
+		info, ok := decoded["info"].(map[string]interface{})
+
+		if !ok {
+			fmt.Println("info is not a map")
+			return
+		}
+		fmt.Println("Length:", info["length"])
+
 	} else {
 		fmt.Println("Unknown command: " + command)
 		os.Exit(1)
