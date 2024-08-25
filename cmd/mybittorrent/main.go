@@ -1,11 +1,14 @@
 package main
 
 import (
+	"bytes"
+	"crypto/sha1"
 	"encoding/json"
 	"fmt"
 	"io"
 	"os"
-	// bencode "github.com/jackpal/bencode-go" // Available if you need it!
+
+	bencode "github.com/jackpal/bencode-go" // Available if you need it!
 )
 
 // Example:
@@ -163,6 +166,21 @@ func main() {
 			return
 		}
 		fmt.Println("Length:", info["length"])
+
+		var buf bytes.Buffer
+
+		err = bencode.Marshal(&buf, info)
+
+		if err != nil {
+			fmt.Println("Bad info")
+			return
+		}
+
+		hash := sha1.New()
+		hash.Write(buf.Bytes())
+		sha1Hash := hash.Sum(nil)
+
+		fmt.Printf("Info Hash: %x\n", sha1Hash)
 
 	} else {
 		fmt.Println("Unknown command: " + command)
