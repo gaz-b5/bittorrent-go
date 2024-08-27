@@ -343,7 +343,7 @@ func main() {
 			return
 		}
 
-		fmt.Printf("Peer ID:%x\n", recievedHandshake[48:])
+		fmt.Printf("Peer ID:%x \n", recievedHandshake[48:])
 
 	} else {
 		fmt.Println("Unknown command: " + command)
