@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/sha1"
 	"encoding/binary"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -276,6 +277,74 @@ func main() {
 
 			fmt.Printf("%s:%d\n", ip, port)
 		}
+
+	} else if command == "handshake" {
+		data, err := os.ReadFile(os.Args[2])
+
+		if err != nil {
+			fmt.Printf("error: read file: %v\n", err)
+			return
+		}
+
+		decoded, _, err := decodeDict(string(data), 0)
+
+		if err != nil {
+			fmt.Println(err)
+			return
+		}
+
+		info, ok := decoded["info"].(map[string]interface{})
+
+		if !ok {
+			fmt.Println("info is not a map")
+			return
+		}
+
+		var buf bytes.Buffer
+
+		err = bencode.Marshal(&buf, info)
+
+		if err != nil {
+			fmt.Println("Bad info")
+			return
+		}
+
+		hash := sha1.New()
+		hash.Write(buf.Bytes())
+		sha1Hash := hash.Sum(nil)
+
+		peerAddress := os.Args[3]
+
+		conn, err := net.Dial("tcp", peerAddress)
+		if err != nil {
+			fmt.Println("bad peer")
+			return
+		}
+		defer conn.Close()
+
+		pstrlen := byte(19)
+		pstr := []byte("BitTorrent protocol")
+		reserved := make([]byte, 8)
+		handshake := append([]byte{pstrlen}, pstr...)
+		handshake = append(handshake, reserved...)
+		handshake = append(handshake, sha1Hash...)
+		handshake = append(handshake, []byte{0, 0, 1, 1, 2, 2, 3, 3, 4, 4, 5, 5, 6, 6, 7, 7, 8, 8, 9, 9}...)
+
+		_, err = conn.Write(handshake)
+		if err != nil {
+			fmt.Println("Failed to write handshake")
+			return
+		}
+
+		recievedHandshake := make([]byte, 68)
+
+		_, err = conn.Read(recievedHandshake)
+		if err != nil {
+			fmt.Println("Failed to read handshake")
+			return
+		}
+
+		fmt.Printf("Peer ID:%x\n", hex.EncodeToString(recievedHandshake[48:]))
 
 	} else {
 		fmt.Println("Unknown command: " + command)
