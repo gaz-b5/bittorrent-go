@@ -3,10 +3,15 @@ package main
 import (
 	"bytes"
 	"crypto/sha1"
+	"encoding/binary"
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
+	"net/http"
+	"net/url"
 	"os"
+	"strconv"
 
 	bencode "github.com/jackpal/bencode-go" // Available if you need it!
 )
@@ -185,6 +190,92 @@ func main() {
 		fmt.Println("Piece Length:", info["piece length"])
 
 		fmt.Printf("Piece Hashes: %x\n", info["pieces"])
+
+	} else if command == "peers" {
+		data, err := os.ReadFile(os.Args[2])
+
+		if err != nil {
+			fmt.Printf("error: read file: %v\n", err)
+			return
+		}
+
+		decoded, _, err := decodeDict(string(data), 0)
+
+		if err != nil {
+			fmt.Println(err)
+			return
+		}
+
+		baseURL, ok := decoded["announce"].(string)
+		if !ok {
+			fmt.Println("announce is not a string")
+			return
+		}
+
+		info, ok := decoded["info"].(map[string]interface{})
+
+		if !ok {
+			fmt.Println("info is not a map")
+			return
+		}
+
+		var buf bytes.Buffer
+
+		err = bencode.Marshal(&buf, info)
+
+		if err != nil {
+			fmt.Println("Bad info")
+			return
+		}
+
+		hash := sha1.New()
+		hash.Write(buf.Bytes())
+		sha1Hash := hash.Sum(nil)
+
+		u, err := url.Parse(baseURL)
+
+		params := url.Values{}
+		params.Add("info_hash", string(sha1Hash))
+		params.Add("peer_id", "00112233445566778899")
+		params.Add("port", "6881")
+		params.Add("uploaded", "0")
+		params.Add("downloaded", "0")
+		params.Add("left", strconv.Itoa(info["length"].(int)))
+		params.Add("compact", "1")
+
+		u.RawQuery = params.Encode()
+
+		resp, err := http.Get(u.String())
+		if err != nil {
+			fmt.Println("Error:", err)
+			return
+		}
+		defer resp.Body.Close()
+
+		resBody, err := io.ReadAll(resp.Body)
+
+		decodedResp, _, err := decodeDict(string(resBody), 0)
+		if err != nil {
+			fmt.Println("Oh no response:", err)
+			return
+		}
+
+		peersData := []byte(decodedResp["peers"].(string))
+
+		if len(peersData)%6 != 0 {
+			fmt.Println("invalid peersData length")
+			return
+		}
+
+		for i := 0; i < len(peersData); i += 6 {
+			peer := peersData[i : i+6]
+
+			ip := net.IPv4(peer[0], peer[1], peer[2], peer[3])
+
+			port := binary.BigEndian.Uint16(peer[4:6])
+
+			fmt.Printf("%s:%d\n", ip, port)
+		}
 
 	} else {
 		fmt.Println("Unknown command: " + command)
