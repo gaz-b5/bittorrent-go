@@ -76,13 +76,13 @@ func decodeString(b string, st int) (x string, i int, err error) {
 		l = l*10 + (int(b[i]) - '0')
 		i++
 	}
-	if i == len(b) || b[i] != ':' {
-		return "", st, fmt.Errorf("bad string")
-	}
+	// if i == len(b) || b[i] != ':' {
+	// 	return "", st, fmt.Errorf("bad string")
+	// }
 	i++
-	if i+l > len(b) {
-		return "", st, fmt.Errorf("bad string: out of bounds")
-	}
+	// if i+l > len(b) {
+	// 	return "", st, fmt.Errorf("bad string: out of bounds")
+	// }
 	x = b[i : i+l]
 	i += l
 	return x, i, nil
