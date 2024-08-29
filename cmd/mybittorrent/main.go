@@ -350,34 +350,34 @@ func downloadTorrentComplete(outputPath string, conn net.Conn, torrent Torrent) 
 		return
 	}
 
+	//constructed interested
+	message := make([]byte, 5)
+	message[4] = byte(2)
+	binary.BigEndian.PutUint32(message[0:4], uint32(1))
+
+	//send interested
+	_, err = conn.Write(message)
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+
+	//wait for unchoke
+	buf = make([]byte, 5)
+	_, err = conn.Read(buf)
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+
+	fmt.Println("unchoke message recieved")
+
 	pieceSize := torrent.Info.PieceLength
 	pieceCnt := int(math.Ceil(float64(torrent.Info.Length) / float64(pieceSize)))
 
 	var fileData bytes.Buffer
 	for index := 0; index < pieceCnt; index++ {
 		fmt.Println("Piece Started:", index)
-
-		//constructed interested
-		message := make([]byte, 5)
-		message[4] = byte(2)
-		binary.BigEndian.PutUint32(message[0:4], uint32(1))
-
-		//send interested
-		_, err = conn.Write(message)
-		if err != nil {
-			fmt.Println(err)
-			return
-		}
-
-		//wait for unchoke
-		buf = make([]byte, 5)
-		_, err = conn.Read(buf)
-		if err != nil {
-			fmt.Println(err)
-			return
-		}
-
-		fmt.Println("unchoke message recieved:", index)
 
 		//request for each block
 		var pieceData []byte
