@@ -329,7 +329,7 @@ func downloadTorrent(conn net.Conn, torrent Torrent, index int) (pieceData []byt
 
 func fileReader(torrentFilePath string) (torrent Torrent) {
 
-	torrentFile, ok := os.ReadFile(torrentFilePath)
+	torrentFile, _ := os.ReadFile(torrentFilePath)
 	decoded, _, err := decodeDict(string(torrentFile), 0)
 
 	if err != nil {
