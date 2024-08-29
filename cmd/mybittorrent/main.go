@@ -377,7 +377,7 @@ func downloadTorrentComplete(outputPath string, conn net.Conn, torrent Torrent) 
 			return
 		}
 
-		// fmt.Println("unchoke message recieved:", index)
+		fmt.Println("unchoke message recieved:", index)
 
 		//request for each block
 		var pieceData []byte
