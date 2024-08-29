@@ -306,6 +306,7 @@ func downloadTorrent(conn net.Conn, torrent Torrent, index int) (pieceData []byt
 			return nil, err
 		}
 
+		fmt.Println("Request message sent:", index)
 		//accept data
 		resBuf := make([]byte, 4)
 		_, err = conn.Read(resBuf)
