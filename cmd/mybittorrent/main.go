@@ -206,6 +206,7 @@ func peersList(torrent Torrent) (peers []string, err error) {
 		p := fmt.Sprintf("%s:%d", ip, port)
 
 		peers = append(peers, p)
+		fmt.Println(p)
 	}
 
 	return peers, err
@@ -508,12 +509,15 @@ func main() {
 		}
 		defer conn.Close()
 
+		fmt.Println(2)
+
 		_, err = executeHandshake(torrent, peers[0], conn)
 
 		if err != nil {
 			fmt.Println("Handshake error:", err)
 			return
 		}
+		fmt.Println(3)
 
 		pieceSize := torrent.Info.PieceLength
 		pieceCnt := int(math.Ceil(float64(torrent.Info.Length) / float64(pieceSize)))
