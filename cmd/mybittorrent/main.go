@@ -331,6 +331,113 @@ func downloadTorrent(conn net.Conn, torrent Torrent, index int) (pieceData []byt
 	return pieceData, err
 }
 
+func downloadTorrentComplete(outputPath string, conn net.Conn, torrent Torrent) (err error) {
+
+	//wait for bitfield message
+	buf := make([]byte, 4)
+	_, err = conn.Read(buf)
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+	fmt.Println("bitfield message recieved")
+
+	//payload
+	bitpayload := make([]byte, binary.BigEndian.Uint32(buf))
+	_, err = conn.Read(bitpayload)
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+
+	pieceSize := torrent.Info.PieceLength
+	pieceCnt := int(math.Ceil(float64(torrent.Info.Length) / float64(pieceSize)))
+
+	var fileData bytes.Buffer
+	for index := 0; index < pieceCnt; index++ {
+		fmt.Println("Piece Started:", index)
+
+		//constructed interested
+		message := make([]byte, 5)
+		message[4] = byte(2)
+		binary.BigEndian.PutUint32(message[0:4], uint32(1))
+
+		//send interested
+		_, err = conn.Write(message)
+		if err != nil {
+			fmt.Println(err)
+			return
+		}
+
+		//wait for unchoke
+		buf = make([]byte, 5)
+		_, err = conn.Read(buf)
+		if err != nil {
+			fmt.Println(err)
+			return
+		}
+
+		// fmt.Println("unchoke message recieved:", index)
+
+		//request for each block
+		var pieceData []byte
+
+		if index == pieceCnt-1 {
+			pieceSize = torrent.Info.Length % torrent.Info.PieceLength
+		}
+		blockSize := 16 * 1024
+		blockCnt := int(math.Ceil(float64(pieceSize) / float64(blockSize)))
+		for i := 0; i < blockCnt; i++ {
+			blockLength := blockSize
+			if i == blockCnt-1 {
+				blockLength = pieceSize - ((blockCnt - 1) * int(blockSize))
+			}
+
+			peerMessage := RequestMessage{
+				lengthPrefix: 13,
+				id:           6,
+				index:        uint32(index),
+				begin:        uint32(i * int(blockSize)),
+				length:       uint32(blockLength),
+			}
+			var buf bytes.Buffer
+			binary.Write(&buf, binary.BigEndian, peerMessage)
+			_, err = conn.Write(buf.Bytes())
+			if err != nil {
+				fmt.Println(err)
+				return err
+			}
+
+			//accept data
+			resBuf := make([]byte, 4)
+			_, err = conn.Read(resBuf)
+			if err != nil {
+				fmt.Println(err)
+				return err
+			}
+			peerMessage = RequestMessage{}
+			peerMessage.lengthPrefix = binary.BigEndian.Uint32(resBuf)
+			payloadBuf := make([]byte, peerMessage.lengthPrefix)
+			_, err = io.ReadFull(conn, payloadBuf)
+			if err != nil {
+				fmt.Println(err)
+				return err
+			}
+			peerMessage.id = payloadBuf[0]
+			pieceData = append(pieceData, payloadBuf[9:]...)
+		}
+
+		if err != nil {
+			fmt.Println("Error on", index, ":", err)
+			return err
+		}
+		fmt.Println("Piece Finished:", index)
+		fileData.Write(pieceData)
+	}
+	os.WriteFile(outputPath, fileData.Bytes(), os.ModePerm)
+	return err
+}
+
 func fileReader(torrentFilePath string) (torrent Torrent) {
 
 	torrentFile, _ := os.ReadFile(torrentFilePath)
@@ -522,20 +629,13 @@ func main() {
 		}
 		fmt.Println("Firm Handshake")
 
-		pieceSize := torrent.Info.PieceLength
-		pieceCnt := int(math.Ceil(float64(torrent.Info.Length) / float64(pieceSize)))
-		var fileData bytes.Buffer
-		for i := 0; i < pieceCnt; i++ {
-			fmt.Println("Piece Started:", i)
-			pieceData, err := downloadTorrent(conn, torrent, i)
-			if err != nil {
-				fmt.Println("Error on", i, ":", err)
-				return
-			}
-			fmt.Println("Piece Finished:", i)
-			fileData.Write(pieceData)
+		err = downloadTorrentComplete(outputPath, conn, torrent)
+
+		if err != nil {
+			fmt.Println("download err:", err)
+
 		}
-		os.WriteFile(outputPath, fileData.Bytes(), os.ModePerm)
+		return
 
 	} else {
 		fmt.Println("Unknown command: " + command)
