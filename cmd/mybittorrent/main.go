@@ -248,6 +248,7 @@ func downloadTorrent(conn net.Conn, torrent Torrent, index int) (pieceData []byt
 		fmt.Println(err)
 		return
 	}
+	fmt.Println("bitfield message recieved:", index)
 
 	//payload
 	bitpayload := make([]byte, binary.BigEndian.Uint32(buf))
@@ -276,6 +277,8 @@ func downloadTorrent(conn net.Conn, torrent Torrent, index int) (pieceData []byt
 		fmt.Println(err)
 		return
 	}
+
+	fmt.Println("unchoke message recieved:", index)
 
 	//request for each block
 	pieceSize := torrent.Info.PieceLength
@@ -306,7 +309,6 @@ func downloadTorrent(conn net.Conn, torrent Torrent, index int) (pieceData []byt
 			return nil, err
 		}
 
-		fmt.Println("Request message sent:", index)
 		//accept data
 		resBuf := make([]byte, 4)
 		_, err = conn.Read(resBuf)
