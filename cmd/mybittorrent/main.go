@@ -481,6 +481,50 @@ func main() {
 		}
 		fmt.Printf("Piece %d downloaded to %s.\n", index, outputPath)
 
+	} else if command == "download" {
+
+		var torrentFile, outputPath string
+
+		if os.Args[2] == "-o" {
+			torrentFile = os.Args[4]
+			outputPath = os.Args[3]
+		}
+
+		torrent := fileReader(torrentFile)
+
+		peers, err := peersList(torrent)
+		if err != nil {
+			fmt.Println(err)
+			return
+		}
+
+		conn, err := net.Dial("tcp", peers[0])
+		if err != nil {
+			fmt.Println("bad peer")
+			return
+		}
+		defer conn.Close()
+
+		_, err = executeHandshake(torrent, peers[0], conn)
+
+		if err != nil {
+			fmt.Println("Handshake error:", err)
+			return
+		}
+
+		pieceSize := torrent.Info.PieceLength
+		pieceCnt := int(math.Ceil(float64(torrent.Info.Length) / float64(pieceSize)))
+		var fileData bytes.Buffer
+		for i := 0; i < pieceCnt; i++ {
+			pieceData, err := downloadTorrent(conn, torrent, i)
+			if err != nil {
+				fmt.Println("Error on", i, ":", err)
+				return
+			}
+			fileData.Write(pieceData)
+		}
+		os.WriteFile(outputPath, fileData.Bytes(), os.ModePerm)
+
 	} else {
 		fmt.Println("Unknown command: " + command)
 		os.Exit(1)
