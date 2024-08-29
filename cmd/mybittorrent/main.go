@@ -492,6 +492,8 @@ func main() {
 
 		torrent := fileReader(torrentFile)
 
+		fmt.Println(1)
+
 		peers, err := peersList(torrent)
 		if err != nil {
 			fmt.Println(err)
