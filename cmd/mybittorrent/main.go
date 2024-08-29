@@ -494,7 +494,7 @@ func main() {
 
 		torrent := fileReader(torrentFile)
 
-		fmt.Println(1)
+		fmt.Println("File Read and torrent Created")
 
 		peers, err := peersList(torrent)
 		if err != nil {
@@ -509,7 +509,7 @@ func main() {
 		}
 		defer conn.Close()
 
-		fmt.Println(2)
+		fmt.Println("Peer list extracted and connection dialed")
 
 		_, err = executeHandshake(torrent, peers[0], conn)
 
@@ -517,17 +517,19 @@ func main() {
 			fmt.Println("Handshake error:", err)
 			return
 		}
-		fmt.Println(3)
+		fmt.Println("Firm Handshake")
 
 		pieceSize := torrent.Info.PieceLength
 		pieceCnt := int(math.Ceil(float64(torrent.Info.Length) / float64(pieceSize)))
 		var fileData bytes.Buffer
 		for i := 0; i < pieceCnt; i++ {
+			fmt.Println("Piece Started:", i)
 			pieceData, err := downloadTorrent(conn, torrent, i)
 			if err != nil {
 				fmt.Println("Error on", i, ":", err)
 				return
 			}
+			fmt.Println("Piece Finished:", i)
 			fileData.Write(pieceData)
 		}
 		os.WriteFile(outputPath, fileData.Bytes(), os.ModePerm)
