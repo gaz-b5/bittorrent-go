@@ -76,13 +76,13 @@ func decodeString(b string, st int) (x string, i int, err error) {
 		l = l*10 + (int(b[i]) - '0')
 		i++
 	}
-	// if i == len(b) || b[i] != ':' {
-	// 	return "", st, fmt.Errorf("bad string")
-	// }
+	if i == len(b) || b[i] != ':' {
+		return "", st, fmt.Errorf("bad string")
+	}
 	i++
-	// if i+l > len(b) {
-	// 	return "", st, fmt.Errorf("bad string: out of bounds")
-	// }
+	if i+l > len(b) {
+		return "", st, fmt.Errorf("bad string: out of bounds")
+	}
 	x = b[i : i+l]
 	i += l
 	return x, i, nil
@@ -329,7 +329,8 @@ func downloadTorrent(conn net.Conn, torrent Torrent, index int) (pieceData []byt
 
 func fileReader(torrentFilePath string) (torrent Torrent) {
 
-	decoded, _, err := decodeDict(string(torrentFilePath), 0)
+	torrentFile, ok := os.ReadFile(torrentFilePath)
+	decoded, _, err := decodeDict(string(torrentFile), 0)
 
 	if err != nil {
 		fmt.Println(err)
