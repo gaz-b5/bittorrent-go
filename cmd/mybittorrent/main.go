@@ -13,8 +13,9 @@ import (
 	"net/url"
 	"os"
 	"strconv"
+	"sync"
 
-	bencode "github.com/jackpal/bencode-go" // Available if you need it!
+	bencode "github.com/jackpal/bencode-go"
 )
 
 type Torrent struct {
@@ -438,6 +439,146 @@ func downloadTorrentComplete(outputPath string, conn net.Conn, torrent Torrent) 
 	return err
 }
 
+func downloadPieceFromPeer(torrent Torrent, peerAddress string, index int) (pieceData []byte, err error) {
+	conn, err := net.Dial("tcp", peerAddress)
+	if err != nil {
+		return nil, fmt.Errorf("failed to connect to peer %s: %v", peerAddress, err)
+	}
+	defer conn.Close()
+
+	_, err = executeHandshake(torrent, peerAddress, conn)
+	if err != nil {
+		return nil, fmt.Errorf("handshake failed with peer %s: %v", peerAddress, err)
+	}
+
+	pieceSize := torrent.Info.PieceLength
+	if index == int(math.Ceil(float64(torrent.Info.Length)/float64(pieceSize)))-1 {
+		pieceSize = torrent.Info.Length % torrent.Info.PieceLength
+	}
+	blockSize := 16 * 1024
+	blockCnt := int(math.Ceil(float64(pieceSize) / float64(blockSize)))
+
+	var pieceDataBuffer []byte
+	for i := 0; i < blockCnt; i++ {
+		blockLength := blockSize
+		if i == blockCnt-1 {
+			blockLength = pieceSize - ((blockCnt - 1) * int(blockSize))
+		}
+
+		peerMessage := RequestMessage{
+			lengthPrefix: 13,
+			id:           6,
+			index:        uint32(index),
+			begin:        uint32(i * int(blockSize)),
+			length:       uint32(blockLength),
+		}
+		var buf bytes.Buffer
+		binary.Write(&buf, binary.BigEndian, peerMessage)
+		_, err = conn.Write(buf.Bytes())
+		if err != nil {
+			return nil, err
+		}
+
+		resBuf := make([]byte, 4)
+		_, err = conn.Read(resBuf)
+		if err != nil {
+			return nil, err
+		}
+
+		peerMessage = RequestMessage{}
+		peerMessage.lengthPrefix = binary.BigEndian.Uint32(resBuf)
+		payloadBuf := make([]byte, peerMessage.lengthPrefix)
+		_, err = io.ReadFull(conn, payloadBuf)
+		if err != nil {
+			return nil, err
+		}
+
+		pieceDataBuffer = append(pieceDataBuffer, payloadBuf[9:]...)
+	}
+
+	return pieceDataBuffer, nil
+}
+
+func downloadTorrentParallel(outputPath string, torrent Torrent, peers []string) error {
+	pieceSize := torrent.Info.PieceLength
+	pieceCnt := int(math.Ceil(float64(torrent.Info.Length) / float64(pieceSize)))
+
+	// Channel to collect piece data
+	pieceChan := make(chan struct {
+		index int
+		data  []byte
+		err   error
+	}, pieceCnt)
+
+	// WaitGroup to manage goroutines
+	var wg sync.WaitGroup
+	wg.Add(pieceCnt)
+
+	// Piece download function
+	downloadPiece := func(index int) {
+		defer wg.Done()
+		var lastErr error
+
+		// Try multiple peers for a piece
+		for _, peer := range peers {
+			pieceData, err := downloadPieceFromPeer(torrent, peer, index)
+			if err == nil {
+				pieceChan <- struct {
+					index int
+					data  []byte
+					err   error
+				}{index: index, data: pieceData, err: nil}
+				return
+			}
+			lastErr = err
+		}
+
+		// If all peers fail
+		pieceChan <- struct {
+			index int
+			data  []byte
+			err   error
+		}{index: index, data: nil, err: lastErr}
+	}
+
+	// Start parallel downloads
+	for i := 0; i < pieceCnt; i++ {
+		go downloadPiece(i)
+	}
+
+	// Wait for all downloads to complete
+	go func() {
+		wg.Wait()
+		close(pieceChan)
+	}()
+
+	// Collect and order pieces
+	pieces := make([][]byte, pieceCnt)
+	var errors []error
+
+	for result := range pieceChan {
+		if result.err != nil {
+			errors = append(errors, fmt.Errorf("piece %d download failed: %v", result.index, result.err))
+			continue
+		}
+		pieces[result.index] = result.data
+	}
+
+	// Check for download errors
+	if len(errors) > 0 {
+		return fmt.Errorf("multiple piece download errors: %v", errors)
+	}
+
+	// Combine pieces
+	var fileData bytes.Buffer
+	for _, piece := range pieces {
+		fileData.Write(piece)
+	}
+
+	// Write to file
+	return os.WriteFile(outputPath, fileData.Bytes(), os.ModePerm)
+}
+
 func fileReader(torrentFilePath string) (torrent Torrent) {
 
 	torrentFile, _ := os.ReadFile(torrentFilePath)
@@ -637,6 +778,33 @@ func main() {
 		}
 		return
 
+	} else if command == "download" {
+		var torrentFile, outputPath string
+
+		if os.Args[2] == "-o" {
+			torrentFile = os.Args[4]
+			outputPath = os.Args[3]
+		}
+
+		torrent := fileReader(torrentFile)
+
+		fmt.Println("File Read and torrent Created")
+
+		peers, err := peersList(torrent)
+		if err != nil {
+			fmt.Println(err)
+			return
+		}
+
+		fmt.Println("Downloading file using parallel download from", len(peers), "peers")
+
+		err = downloadTorrentParallel(outputPath, torrent, peers)
+		if err != nil {
+			fmt.Println("Parallel download error:", err)
+			return
+		}
+
+		fmt.Println("File downloaded successfully to", outputPath)
 	} else {
 		fmt.Println("Unknown command: " + command)
 		os.Exit(1)
