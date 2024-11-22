@@ -50,6 +50,17 @@ type RequestMessage struct {
 	length       uint32
 }
 
+func verifyPiece(pieceData []byte, expectedHash []byte) bool {
+	hash := sha1.New()
+	hash.Write(pieceData)
+	return bytes.Equal(hash.Sum(nil), expectedHash)
+}
+
+func getPieceHash(torrent Torrent, index int) []byte {
+	start := index * 20
+	return []byte(torrent.Info.Pieces[start : start+20])
+}
+
 func decode(b string, st int) (x interface{}, i int, err error) {
 	// fmt.Println(st)
 	if st == len(b) {
@@ -451,6 +462,30 @@ func downloadPieceFromPeer(torrent Torrent, peerAddress string, index int) (piec
 		return nil, fmt.Errorf("handshake failed with peer %s: %v", peerAddress, err)
 	}
 
+	// Wait for bitfield and send interested message
+	buf := make([]byte, 4)
+	if _, err = conn.Read(buf); err != nil {
+		return nil, err
+	}
+	bitpayload := make([]byte, binary.BigEndian.Uint32(buf))
+	if _, err = conn.Read(bitpayload); err != nil {
+		return nil, err
+	}
+
+	// Send interested message
+	message := make([]byte, 5)
+	message[4] = byte(2)
+	binary.BigEndian.PutUint32(message[0:4], uint32(1))
+	if _, err = conn.Write(message); err != nil {
+		return nil, err
+	}
+
+	// Wait for unchoke
+	buf = make([]byte, 5)
+	if _, err = conn.Read(buf); err != nil {
+		return nil, err
+	}
+
 	pieceSize := torrent.Info.PieceLength
 	if index == int(math.Ceil(float64(torrent.Info.Length)/float64(pieceSize)))-1 {
 		pieceSize = torrent.Info.Length % torrent.Info.PieceLength
@@ -496,6 +531,12 @@ func downloadPieceFromPeer(torrent Torrent, peerAddress string, index int) (piec
 		pieceDataBuffer = append(pieceDataBuffer, payloadBuf[9:]...)
 	}
 
+	// Verify piece hash
+	expectedHash := getPieceHash(torrent, index)
+	if !verifyPiece(pieceDataBuffer, expectedHash) {
+		return nil, fmt.Errorf("piece %d hash verification failed", index)
+	}
+
 	return pieceDataBuffer, nil
 }
 
@@ -503,26 +544,33 @@ func downloadTorrentParallel(outputPath string, torrent Torrent, peers []string)
 	pieceSize := torrent.Info.PieceLength
 	pieceCnt := int(math.Ceil(float64(torrent.Info.Length) / float64(pieceSize)))
 
-	// Channel to collect piece data
 	pieceChan := make(chan struct {
 		index int
 		data  []byte
 		err   error
 	}, pieceCnt)
 
-	// WaitGroup to manage goroutines
 	var wg sync.WaitGroup
 	wg.Add(pieceCnt)
 
-	// Piece download function
+	// Semaphore to limit concurrent connections
+	maxConcurrent := 5
+	semaphore := make(chan struct{}, maxConcurrent)
+
 	downloadPiece := func(index int) {
 		defer wg.Done()
-		var lastErr error
+		defer func() { <-semaphore }() // Release semaphore slot
 
-		// Try multiple peers for a piece
-		for _, peer := range peers {
+		var lastErr error
+		attempts := 0
+		maxAttempts := len(peers)
+
+		// Try different peers until success or max attempts reached
+		for attempts < maxAttempts {
+			peer := peers[attempts%len(peers)]
 			pieceData, err := downloadPieceFromPeer(torrent, peer, index)
 			if err == nil {
+				fmt.Printf("Piece %d downloaded and verified successfully\n", index)
 				pieceChan <- struct {
 					index int
 					data  []byte
@@ -531,9 +579,10 @@ func downloadTorrentParallel(outputPath string, torrent Torrent, peers []string)
 				return
 			}
 			lastErr = err
+			attempts++
+			fmt.Printf("Piece %d attempt %d failed from peer %s: %v\n", index, attempts, peer, err)
 		}
 
-		// If all peers fail
 		pieceChan <- struct {
 			index int
 			data  []byte
@@ -541,12 +590,11 @@ func downloadTorrentParallel(outputPath string, torrent Torrent, peers []string)
 		}{index: index, data: nil, err: lastErr}
 	}
 
-	// Start parallel downloads
 	for i := 0; i < pieceCnt; i++ {
+		semaphore <- struct{}{}
 		go downloadPiece(i)
 	}
 
-	// Wait for all downloads to complete
 	go func() {
 		wg.Wait()
 		close(pieceChan)
@@ -564,18 +612,16 @@ func downloadTorrentParallel(outputPath string, torrent Torrent, peers []string)
 		pieces[result.index] = result.data
 	}
 
-	// Check for download errors
 	if len(errors) > 0 {
-		return fmt.Errorf("multiple piece download errors: %v", errors)
+		return fmt.Errorf("download failed with errors: %v", errors)
 	}
 
-	// Combine pieces
+	// Combine pieces and write to file
 	var fileData bytes.Buffer
 	for _, piece := range pieces {
 		fileData.Write(piece)
 	}
 
-	// Write to file
 	return os.WriteFile(outputPath, fileData.Bytes(), os.ModePerm)
 }
 
@@ -778,7 +824,7 @@ func main() {
 		}
 		return
 
-	} else if command == "download" {
+	} else if command == "download_parallel" {
 		var torrentFile, outputPath string
 
 		if os.Args[2] == "-o" {
